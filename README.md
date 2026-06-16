@@ -7,7 +7,7 @@ A Rust + axum REST API for looking up geographic location data for one or more I
 Serve the API:
 
 ```bash
-geoip serve --bind 0.0.0.0:3000
+geoip serve
 ```
 
 Use a custom database path:
@@ -24,7 +24,7 @@ MAXMIND_LICENSE_KEY=your-license-key \
 geoip download --db-path data/GeoLite2-City.mmdb
 ```
 
-`--db-path` defaults to `data/GeoLite2-City.mmdb`.
+`--bind` defaults to `0.0.0.0:5000`. `--db-path` defaults to `data/GeoLite2-City.mmdb`.
 
 Both commands read environment variables from a `.env` file in the current directory. Existing shell environment variables take precedence.
 
@@ -47,19 +47,19 @@ Authorization: Bearer your-api-token
 Health:
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:5000/health
 ```
 
 Single lookup:
 
 ```bash
-curl http://localhost:3000/lookup/8.8.8.8
+curl http://localhost:5000/lookup/8.8.8.8
 ```
 
 Batch lookup:
 
 ```bash
-curl -X POST http://localhost:3000/lookup \
+curl -X POST http://localhost:5000/lookup \
   -H 'content-type: application/json' \
   -d '{"ips":["8.8.8.8","1.1.1.1","bad-ip"]}'
 ```

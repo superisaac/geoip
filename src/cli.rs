@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 pub const DEFAULT_DB_PATH: &str = "data/GeoLite2-City.mmdb";
+pub const DEFAULT_BIND: &str = "0.0.0.0:5000";
 
 #[derive(Debug, Parser, PartialEq, Eq)]
 #[command(
@@ -18,7 +19,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Command {
     Serve {
-        #[arg(long)]
+        #[arg(long, default_value = DEFAULT_BIND)]
         bind: String,
         #[arg(long, default_value = DEFAULT_DB_PATH)]
         db_path: PathBuf,
@@ -58,10 +59,16 @@ mod tests {
     }
 
     #[test]
-    fn serve_requires_bind() {
-        let err = Cli::try_parse_from(["geoip", "serve"]).expect_err("bind is required");
+    fn serve_uses_default_bind() {
+        let cli = Cli::parse_from(["geoip", "serve"]);
 
-        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+        assert_eq!(
+            cli.command,
+            Command::Serve {
+                bind: "0.0.0.0:5000".to_string(),
+                db_path: PathBuf::from("data/GeoLite2-City.mmdb"),
+            }
+        );
     }
 
     #[test]

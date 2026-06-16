@@ -34,6 +34,5 @@ Cargo.lock
 
 .vscode/
 .env
-llmpool.toml
-VIBETEXT.md
 env.local
+data/
