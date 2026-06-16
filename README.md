@@ -72,6 +72,39 @@ curl -X POST http://localhost:5000/lookup \
   -d '{"ips":["8.8.8.8","1.1.1.1","bad-ip"]}'
 ```
 
+## Docker
+
+Build a local image:
+
+```bash
+docker build -t geoip:local .
+```
+
+Run with an existing database mounted at `/data/GeoLite2-City.mmdb`:
+
+```bash
+docker run --rm -p 5000:5000 \
+  -v "$PWD/data:/data" \
+  geoip:local
+```
+
+Run and download the database on first start:
+
+```bash
+docker run --rm -p 5000:5000 \
+  -v "$PWD/data:/data" \
+  -e MAXMIND_ACCOUNT_ID=123 \
+  -e MAXMIND_LICENSE_KEY=your-license-key \
+  geoip:local serve --bind 0.0.0.0:5000 --db-path /data/GeoLite2-City.mmdb --download
+```
+
+Publish to Docker Hub:
+
+```bash
+docker build -t your-dockerhub-user/geoip:latest .
+docker push your-dockerhub-user/geoip:latest
+```
+
 ## Development
 
 ```bash
