@@ -23,6 +23,8 @@ pub enum Command {
         bind: String,
         #[arg(long, default_value = DEFAULT_DB_PATH)]
         db_path: PathBuf,
+        #[arg(long)]
+        download: bool,
     },
     Download {
         #[arg(long, default_value = DEFAULT_DB_PATH)]
@@ -54,6 +56,7 @@ mod tests {
             Command::Serve {
                 bind: "127.0.0.1:8080".to_string(),
                 db_path: PathBuf::from("/tmp/geo.mmdb"),
+                download: false,
             }
         );
     }
@@ -67,8 +70,31 @@ mod tests {
             Command::Serve {
                 bind: "0.0.0.0:5000".to_string(),
                 db_path: PathBuf::from("data/GeoLite2-City.mmdb"),
+                download: false,
             }
         );
+    }
+
+    #[test]
+    fn parses_serve_download_flag() {
+        let cli = Cli::parse_from(["geoip", "serve", "--download"]);
+
+        assert_eq!(
+            cli.command,
+            Command::Serve {
+                bind: "0.0.0.0:5000".to_string(),
+                db_path: PathBuf::from("data/GeoLite2-City.mmdb"),
+                download: true,
+            }
+        );
+    }
+
+    #[test]
+    fn serve_download_does_not_accept_value() {
+        let err = Cli::try_parse_from(["geoip", "serve", "--download", "true"])
+            .expect_err("download is a flag");
+
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 
     #[test]

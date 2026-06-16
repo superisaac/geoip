@@ -21,12 +21,26 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match Cli::parse().command {
-        Command::Serve { bind, db_path } => serve(bind, db_path).await,
+        Command::Serve {
+            bind,
+            db_path,
+            download,
+        } => serve(bind, db_path, download).await,
         Command::Download { db_path } => download_database(db_path).await,
     }
 }
 
-async fn serve(bind: String, db_path: std::path::PathBuf) -> anyhow::Result<()> {
+async fn serve(bind: String, db_path: std::path::PathBuf, download: bool) -> anyhow::Result<()> {
+    if download && !db_path.exists() {
+        info!(db_path = %db_path.display(), "GeoIP database does not exist; downloading before starting server");
+        println!(
+            "GeoIP database does not exist at {}; downloading...",
+            db_path.display()
+        );
+        download_database(db_path.clone()).await?;
+        println!("GeoIP database downloaded to {}", db_path.display());
+    }
+
     let geoip = if db_path.exists() {
         GeoIpService::load_from_path(&db_path)
             .with_context(|| format!("failed to load GeoIP database from {}", db_path.display()))?

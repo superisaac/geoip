@@ -16,6 +16,14 @@ Use a custom database path:
 geoip serve --bind 127.0.0.1:3000 --db-path data/GeoLite2-City.mmdb
 ```
 
+Download the database before serving when the database path does not exist:
+
+```bash
+MAXMIND_ACCOUNT_ID=123 \
+MAXMIND_LICENSE_KEY=your-license-key \
+geoip serve --download
+```
+
 Download the GeoLite2 City database:
 
 ```bash
@@ -24,7 +32,7 @@ MAXMIND_LICENSE_KEY=your-license-key \
 geoip download --db-path data/GeoLite2-City.mmdb
 ```
 
-`--bind` defaults to `0.0.0.0:5000`. `--db-path` defaults to `data/GeoLite2-City.mmdb`.
+`--bind` defaults to `0.0.0.0:5000`. `--db-path` defaults to `data/GeoLite2-City.mmdb`. `--download` is disabled unless the flag is present.
 
 Both commands read environment variables from a `.env` file in the current directory. Existing shell environment variables take precedence.
 

@@ -61,7 +61,7 @@ pub async fn download_and_replace(
     target_path: impl AsRef<Path>,
 ) -> Result<(), AppError> {
     let target_path = target_path.as_ref();
-    let response = reqwest::Client::new()
+    let mut response = reqwest::Client::new()
         .get(download_url(credentials))
         .basic_auth(&credentials.account_id, Some(&credentials.license_key))
         .send()
@@ -75,17 +75,32 @@ pub async fn download_and_replace(
         )));
     }
 
-    let archive_bytes = response
-        .bytes()
+    let content_length = response.content_length();
+    let mut archive_bytes = Vec::with_capacity(content_length.unwrap_or_default() as usize);
+    let mut downloaded = 0_u64;
+
+    eprintln!("downloading GeoLite2 City database");
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|error| AppError::DownloadFailed(error.to_string()))?;
+        .map_err(|error| AppError::DownloadFailed(error.to_string()))?
+    {
+        downloaded += chunk.len() as u64;
+        archive_bytes.extend_from_slice(&chunk);
+        print_download_progress(downloaded, content_length);
+    }
+    eprintln!();
 
-    let archive_bytes = archive_bytes.to_vec();
     let target_path = target_path.to_path_buf();
+    let display_path = target_path.display().to_string();
 
+    eprintln!("extracting GeoLite2 database");
     tokio::task::spawn_blocking(move || extract_mmdb_and_replace(&archive_bytes, target_path))
         .await
-        .map_err(|error| AppError::DatabaseUpdateFailed(error.to_string()))?
+        .map_err(|error| AppError::DatabaseUpdateFailed(error.to_string()))??;
+
+    eprintln!("database saved to {display_path}");
+    Ok(())
 }
 
 fn extract_mmdb_and_replace(
@@ -142,6 +157,7 @@ fn extract_mmdb_and_replace_with_validator(
         ));
     }
 
+    eprintln!("validating database");
     validate(temp_file.path())?;
 
     temp_file
@@ -155,6 +171,41 @@ fn validate_mmdb(path: &Path) -> Result<(), AppError> {
     Reader::open_readfile(path)
         .map_err(|error| AppError::DatabaseUpdateFailed(error.to_string()))?;
     Ok(())
+}
+
+fn print_download_progress(downloaded: u64, content_length: Option<u64>) {
+    match content_length {
+        Some(total) if total > 0 => {
+            let percent = downloaded as f64 / total as f64 * 100.0;
+            eprint!(
+                "\rdownloaded {} / {} ({percent:.1}%)",
+                human_bytes(downloaded),
+                human_bytes(total)
+            );
+        }
+        _ => eprint!("\rdownloaded {}", human_bytes(downloaded)),
+    }
+    let _ = io::stderr().flush();
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
+    let mut value = bytes as f64;
+    let mut unit = UNITS[0];
+
+    for next_unit in UNITS.iter().skip(1) {
+        if value < 1024.0 {
+            break;
+        }
+        value /= 1024.0;
+        unit = next_unit;
+    }
+
+    if unit == "B" {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {unit}")
+    }
 }
 
 #[cfg(test)]
@@ -280,6 +331,14 @@ mod tests {
             Err(crate::error::AppError::DatabaseUpdateFailed(_))
         ));
         assert_eq!(fs::read(target).unwrap(), b"existing");
+    }
+
+    #[test]
+    fn formats_download_progress_byte_counts() {
+        assert_eq!(human_bytes(0), "0 B");
+        assert_eq!(human_bytes(512), "512 B");
+        assert_eq!(human_bytes(1536), "1.5 KiB");
+        assert_eq!(human_bytes(2 * 1024 * 1024), "2.0 MiB");
     }
 
     fn archive_with_entries(entries: &[(&str, &[u8])]) -> Vec<u8> {
