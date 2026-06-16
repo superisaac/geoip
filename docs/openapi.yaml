@@ -1,0 +1,298 @@
+openapi: 3.1.0
+info:
+  title: GeoIP API
+  version: 0.1.0
+  description: REST API for looking up GeoLite2 City location data by IP address.
+servers:
+  - url: http://localhost:5000
+    description: Default local server
+security:
+  - {}
+  - bearerAuth: []
+tags:
+  - name: Health
+  - name: Lookup
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Check service health and database load state
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service health state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                loaded:
+                  value:
+                    status: ok
+                    database_loaded: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /lookup/{ip}:
+    get:
+      tags:
+        - Lookup
+      summary: Look up one IP address
+      operationId: lookupIp
+      parameters:
+        - name: ip
+          in: path
+          required: true
+          description: IPv4 or IPv6 address to look up.
+          schema:
+            type: string
+          examples:
+            googleDns:
+              value: 8.8.8.8
+      responses:
+        "200":
+          description: GeoIP location data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LookupResult"
+              examples:
+                city:
+                  value:
+                    ip: 8.8.8.8
+                    country:
+                      iso_code: US
+                      name: United States
+                    city:
+                      name: Mountain View
+                    location:
+                      latitude: 37.386
+                      longitude: -122.0838
+                      time_zone: America/Los_Angeles
+                    subdivisions:
+                      - iso_code: CA
+                        name: California
+        "400":
+          $ref: "#/components/responses/InvalidIp"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+  /lookup:
+    post:
+      tags:
+        - Lookup
+      summary: Look up multiple IP addresses
+      operationId: lookupIps
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchLookupRequest"
+            examples:
+              request:
+                value:
+                  ips:
+                    - 8.8.8.8
+                    - 1.1.1.1
+                    - bad-ip
+      responses:
+        "200":
+          description: Per-IP lookup results. Invalid or not-found IPs are returned as item errors.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchLookupResponse"
+              examples:
+                mixed:
+                  value:
+                    results:
+                      - ip: 8.8.8.8
+                        country:
+                          iso_code: US
+                          name: United States
+                      - ip: bad-ip
+                        error:
+                          code: invalid_ip
+                          message: invalid IP address
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/DatabaseUnavailable"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Required only when GEOIP_BEARER_TOKEN is set to a non-empty value.
+  responses:
+    InvalidIp:
+      description: Invalid IP address syntax
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            invalidIp:
+              value:
+                error:
+                  code: invalid_ip
+                  message: invalid IP address
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            unauthorized:
+              value:
+                error:
+                  code: unauthorized
+                  message: Unauthorized
+    NotFound:
+      description: IP address was not found in the GeoIP database
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            notFound:
+              value:
+                error:
+                  code: not_found
+                  message: IP address was not found in the GeoIP database
+    DatabaseUnavailable:
+      description: GeoIP database is not loaded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            databaseUnavailable:
+              value:
+                error:
+                  code: database_unavailable
+                  message: GeoIP database is not loaded
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - database_loaded
+      properties:
+        status:
+          type: string
+          const: ok
+        database_loaded:
+          type: boolean
+    BatchLookupRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - ips
+      properties:
+        ips:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: IPv4 or IPv6 addresses to look up.
+    BatchLookupResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/LookupResult"
+              - $ref: "#/components/schemas/BatchLookupError"
+    BatchLookupError:
+      type: object
+      additionalProperties: false
+      required:
+        - ip
+        - error
+      properties:
+        ip:
+          type: string
+        error:
+          $ref: "#/components/schemas/ErrorBody"
+    LookupResult:
+      type: object
+      additionalProperties: false
+      required:
+        - ip
+      properties:
+        ip:
+          type: string
+        country:
+          $ref: "#/components/schemas/NamedCode"
+        city:
+          $ref: "#/components/schemas/NamedValue"
+        location:
+          $ref: "#/components/schemas/Location"
+        subdivisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/NamedCode"
+    NamedCode:
+      type: object
+      additionalProperties: false
+      properties:
+        iso_code:
+          type: string
+        name:
+          type: string
+    NamedValue:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+    Location:
+      type: object
+      additionalProperties: false
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        time_zone:
+          type: string
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorBody"
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_ip
+            - not_found
+            - database_unavailable
+            - unauthorized
+            - bad_request
+            - internal_error
+        message:
+          type: string
