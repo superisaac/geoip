@@ -21,7 +21,7 @@ Download the database before serving when the database path does not exist:
 ```bash
 MAXMIND_ACCOUNT_ID=123 \
 MAXMIND_LICENSE_KEY=your-license-key \
-geoip serve --download
+geoip serve --update
 ```
 
 Download the GeoLite2 City database:
@@ -29,10 +29,10 @@ Download the GeoLite2 City database:
 ```bash
 MAXMIND_ACCOUNT_ID=123 \
 MAXMIND_LICENSE_KEY=your-license-key \
-geoip download --db-path data/GeoLite2-City.mmdb
+geoip update --db-path data/GeoLite2-City.mmdb
 ```
 
-`--bind` defaults to `0.0.0.0:5000`. `--db-path` defaults to `data/GeoLite2-City.mmdb`. `--download` is disabled unless the flag is present.
+`--bind` defaults to `0.0.0.0:5000`. `--db-path` defaults to `data/GeoLite2-City.mmdb`. `--update` is disabled unless the flag is present.
 
 Both commands read environment variables from a `.env` file in the current directory. Existing shell environment variables take precedence.
 
@@ -95,7 +95,7 @@ docker run --rm -p 5000:5000 \
   -v "$PWD/data:/data" \
   -e MAXMIND_ACCOUNT_ID=123 \
   -e MAXMIND_LICENSE_KEY=your-license-key \
-  geoip:local serve --bind 0.0.0.0:5000 --db-path /data/GeoLite2-City.mmdb --download
+  geoip:local serve --bind 0.0.0.0:5000 --db-path /data/GeoLite2-City.mmdb --update
 ```
 
 Publish to Docker Hub:

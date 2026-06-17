@@ -24,9 +24,9 @@ pub enum Command {
         #[arg(long, default_value = DEFAULT_DB_PATH)]
         db_path: PathBuf,
         #[arg(long)]
-        download: bool,
+        update: bool,
     },
-    Download {
+    Update {
         #[arg(long, default_value = DEFAULT_DB_PATH)]
         db_path: PathBuf,
     },
@@ -56,7 +56,7 @@ mod tests {
             Command::Serve {
                 bind: "127.0.0.1:8080".to_string(),
                 db_path: PathBuf::from("/tmp/geo.mmdb"),
-                download: false,
+                update: false,
             }
         );
     }
@@ -70,40 +70,40 @@ mod tests {
             Command::Serve {
                 bind: "0.0.0.0:5000".to_string(),
                 db_path: PathBuf::from("data/GeoLite2-City.mmdb"),
-                download: false,
+                update: false,
             }
         );
     }
 
     #[test]
-    fn parses_serve_download_flag() {
-        let cli = Cli::parse_from(["geoip", "serve", "--download"]);
+    fn parses_serve_update_flag() {
+        let cli = Cli::parse_from(["geoip", "serve", "--update"]);
 
         assert_eq!(
             cli.command,
             Command::Serve {
                 bind: "0.0.0.0:5000".to_string(),
                 db_path: PathBuf::from("data/GeoLite2-City.mmdb"),
-                download: true,
+                update: true,
             }
         );
     }
 
     #[test]
-    fn serve_download_does_not_accept_value() {
-        let err = Cli::try_parse_from(["geoip", "serve", "--download", "true"])
-            .expect_err("download is a flag");
+    fn serve_update_does_not_accept_value() {
+        let err = Cli::try_parse_from(["geoip", "serve", "--update", "true"])
+            .expect_err("update is a flag");
 
         assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 
     #[test]
-    fn parses_download_command_with_default_db_path() {
-        let cli = Cli::parse_from(["geoip", "download"]);
+    fn parses_update_command_with_default_db_path() {
+        let cli = Cli::parse_from(["geoip", "update"]);
 
         assert_eq!(
             cli.command,
-            Command::Download {
+            Command::Update {
                 db_path: PathBuf::from("data/GeoLite2-City.mmdb"),
             }
         );

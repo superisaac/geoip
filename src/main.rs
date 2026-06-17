@@ -24,14 +24,14 @@ async fn main() -> anyhow::Result<()> {
         Command::Serve {
             bind,
             db_path,
-            download,
-        } => serve(bind, db_path, download).await,
-        Command::Download { db_path } => download_database(db_path).await,
+            update,
+        } => serve(bind, db_path, update).await,
+        Command::Update { db_path } => download_database(db_path).await,
     }
 }
 
-async fn serve(bind: String, db_path: std::path::PathBuf, download: bool) -> anyhow::Result<()> {
-    if download && !db_path.exists() {
+async fn serve(bind: String, db_path: std::path::PathBuf, update: bool) -> anyhow::Result<()> {
+    if should_update_database(update, &db_path) {
         info!(db_path = %db_path.display(), "GeoIP database does not exist; downloading before starting server");
         println!(
             "GeoIP database does not exist at {}; downloading...",
@@ -61,6 +61,10 @@ async fn serve(bind: String, db_path: std::path::PathBuf, download: bool) -> any
     Ok(())
 }
 
+fn should_update_database(update: bool, db_path: &std::path::Path) -> bool {
+    update || !db_path.exists()
+}
+
 fn load_dotenv() {
     if let Err(error) = dotenvy::dotenv() {
         if !matches!(error, dotenvy::Error::Io(ref io_error) if io_error.kind() == std::io::ErrorKind::NotFound)
@@ -88,4 +92,18 @@ async fn download_database(db_path: std::path::PathBuf) -> anyhow::Result<()> {
     info!(db_path = %db_path.display(), "GeoLite2 City database downloaded");
 
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn updates_when_requested_or_database_is_missing() {
+        let missing_path = std::env::temp_dir().join("geoip-main-missing-test.mmdb");
+        let existing_path = std::env::current_exe().expect("test binary path exists");
+
+        assert!(should_update_database(true, &existing_path));
+        assert!(should_update_database(false, &missing_path));
+        assert!(!should_update_database(false, &existing_path));
+    }
 }

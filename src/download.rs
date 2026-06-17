@@ -2,7 +2,7 @@ use std::{
     ffi::OsStr,
     fmt, fs,
     io::{self, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use flate2::read::GzDecoder;
@@ -14,6 +14,8 @@ use crate::error::AppError;
 
 const GEOLITE2_CITY_DOWNLOAD_URL: &str =
     "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz";
+const GEOLITE2_CITY_DIGEST_URL: &str =
+    "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz.sha256";
 
 #[derive(Clone)]
 pub struct MaxMindCredentials {
@@ -56,12 +58,24 @@ pub fn download_url(_credentials: &MaxMindCredentials) -> String {
     GEOLITE2_CITY_DOWNLOAD_URL.to_string()
 }
 
+pub fn digest_url(_credentials: &MaxMindCredentials) -> String {
+    GEOLITE2_CITY_DIGEST_URL.to_string()
+}
+
 pub async fn download_and_replace(
     credentials: &MaxMindCredentials,
     target_path: impl AsRef<Path>,
 ) -> Result<(), AppError> {
     let target_path = target_path.as_ref();
-    let mut response = reqwest::Client::new()
+    let client = reqwest::Client::new();
+    let remote_digest = fetch_digest(&client, credentials).await?;
+
+    if !database_needs_download(target_path, &remote_digest)? {
+        eprintln!("GeoLite2 City database is already up to date");
+        return Ok(());
+    }
+
+    let mut response = client
         .get(download_url(credentials))
         .basic_auth(&credentials.account_id, Some(&credentials.license_key))
         .send()
@@ -93,11 +107,14 @@ pub async fn download_and_replace(
 
     let target_path = target_path.to_path_buf();
     let display_path = target_path.display().to_string();
+    let digest_target_path = target_path.clone();
 
     eprintln!("extracting GeoLite2 database");
     tokio::task::spawn_blocking(move || extract_mmdb_and_replace(&archive_bytes, target_path))
         .await
         .map_err(|error| AppError::DatabaseUpdateFailed(error.to_string()))??;
+
+    write_digest(&digest_target_path, &remote_digest)?;
 
     eprintln!("database saved to {display_path}");
     Ok(())
@@ -173,6 +190,81 @@ fn validate_mmdb(path: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+async fn fetch_digest(
+    client: &reqwest::Client,
+    credentials: &MaxMindCredentials,
+) -> Result<String, AppError> {
+    let response = client
+        .get(digest_url(credentials))
+        .basic_auth(&credentials.account_id, Some(&credentials.license_key))
+        .send()
+        .await
+        .map_err(|error| AppError::DownloadFailed(error.to_string()))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::DownloadFailed(format!(
+            "MaxMind digest returned status {}",
+            response.status()
+        )));
+    }
+
+    let body = response
+        .text()
+        .await
+        .map_err(|error| AppError::DownloadFailed(error.to_string()))?;
+    normalize_digest(&body)
+}
+
+fn normalize_digest(value: &str) -> Result<String, AppError> {
+    let digest = value.split_whitespace().next().unwrap_or_default().trim();
+
+    if digest.is_empty() {
+        return Err(AppError::DownloadFailed(
+            "MaxMind digest response was empty".to_string(),
+        ));
+    }
+
+    Ok(digest.to_string())
+}
+
+fn database_needs_download(target_path: &Path, remote_digest: &str) -> Result<bool, AppError> {
+    if !target_path.exists() {
+        return Ok(true);
+    }
+
+    let path = digest_path(target_path);
+    let local_digest = match fs::read_to_string(&path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(true),
+        Err(error) => return Err(AppError::DatabaseUpdateFailed(error.to_string())),
+    };
+
+    Ok(normalize_digest(&local_digest)? != normalize_digest(remote_digest)?)
+}
+
+fn write_digest(target_path: &Path, digest: &str) -> Result<(), AppError> {
+    let digest = normalize_digest(digest)?;
+    let path = digest_path(target_path);
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| AppError::DatabaseUpdateFailed(error.to_string()))?;
+    }
+
+    fs::write(path, format!("{digest}\n"))
+        .map_err(|error| AppError::DatabaseUpdateFailed(error.to_string()))
+}
+
+fn digest_path(target_path: &Path) -> PathBuf {
+    match target_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
+        Some(extension) => target_path.with_extension(format!("{extension}.digest")),
+        None => target_path.with_extension("digest"),
+    }
+}
+
 fn print_download_progress(downloaded: u64, content_length: Option<u64>) {
     match content_length {
         Some(total) if total > 0 => {
@@ -227,6 +319,68 @@ mod tests {
 
         assert!(url.contains("GeoLite2-City"));
         assert!(url.contains("suffix=tar.gz"));
+    }
+
+    #[test]
+    fn builds_geolite2_city_digest_url() {
+        let credentials = MaxMindCredentials {
+            account_id: "123".to_string(),
+            license_key: "secret".to_string(),
+        };
+
+        let url = digest_url(&credentials);
+
+        assert!(url.contains("GeoLite2-City"));
+        assert!(url.contains("suffix=tar.gz.sha256"));
+    }
+
+    #[test]
+    fn normalizes_sha256_digest_response() {
+        let digest = normalize_digest("abcdef123456  GeoLite2-City_20260616.tar.gz\n").unwrap();
+
+        assert_eq!(digest, "abcdef123456");
+    }
+
+    #[test]
+    fn skips_download_when_database_and_digest_match() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("GeoLite2-City.mmdb");
+        fs::write(&target, b"existing").unwrap();
+        fs::write(digest_path(&target), b"abc123\n").unwrap();
+
+        assert!(!database_needs_download(&target, "abc123").unwrap());
+    }
+
+    #[test]
+    fn downloads_when_database_is_missing_even_if_digest_matches() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("GeoLite2-City.mmdb");
+        fs::write(digest_path(&target), b"abc123\n").unwrap();
+
+        assert!(database_needs_download(&target, "abc123").unwrap());
+    }
+
+    #[test]
+    fn downloads_when_digest_differs() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("GeoLite2-City.mmdb");
+        fs::write(&target, b"existing").unwrap();
+        fs::write(digest_path(&target), b"old").unwrap();
+
+        assert!(database_needs_download(&target, "new").unwrap());
+    }
+
+    #[test]
+    fn writes_normalized_digest_next_to_database() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("GeoLite2-City.mmdb");
+
+        write_digest(&target, "abc123  GeoLite2-City.tar.gz\n").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(digest_path(&target)).unwrap(),
+            "abc123\n"
+        );
     }
 
     #[test]
